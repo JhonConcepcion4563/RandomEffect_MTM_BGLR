@@ -1,0 +1,95 @@
+#Random Effect Model with Unstructured Covariance Matrices Cross Validation
+
+rm(list = ls())
+
+library(MTM)
+library(BGLR)
+library(caret)
+
+setwd("E:/DON_Pheno_Geno_Prediction/MTM")
+
+A <- read.table("A_Matrix_MTM.txt", sep = "\t", header=T)
+#colnames(A) <- as.character(unlist(A[1, ]))
+#A <- A[-1, ]
+#row.names(A)<-A[,1]; A = A[,-1]
+
+#Always double check the column and row names of the A Matrix. Should always be the same
+
+colnames(A)[1] <- "0566A1_3_1_47"
+colnames(A)[2] <- "0762A1_2_8"
+colnames(A)[3] <- "13VTK59_55"
+
+A[is.na(A)] #check for NA
+
+A[A == Inf] <- NA #change infinite values to NA
+
+A <- na.omit(A) #remove NAs
+
+eigenvalues <- eigen(A)$values #if this runs properly, there is no infinite or
+
+
+### Cycles should start here. Re-read the Y file since we are introducing NAs
+
+correlation_results <- data.frame(Iteration = numeric(), Correlation = numeric())
+
+# Loop 100 times
+
+set.seed(123)
+
+for (i in 1:100) {
+  Y <- read.table("MTM_Range_PC1.txt", sep = "\t", header = TRUE)
+  row.names(Y) <- Y[, 1]
+  Y <- Y[, -1]
+  
+  Y2 <- Y
+  
+  num_NA <- ceiling(0.2 * nrow(Y))
+  
+  NA_indices <- sample(1:nrow(Y), num_NA, replace = FALSE)
+  
+  Y$DON[NA_indices] <- NA
+  
+  
+  fm <- MTM(
+    Y = Y,
+    K = list(
+      list(
+        K = A,
+        COV = list(
+          type = 'UN',
+          df0 = 2,
+          S0 = diag(2)
+        )
+      )
+    ),
+    resCov = list(
+      type = 'UN',
+      S0 = diag(2),
+      df0 = 2
+    ),
+    nIter = 5000,
+    burnIn = 500,
+    thin = 5,
+    saveAt = paste0('ex1_', i, '_')
+  )
+  
+  # Store the prediction
+  pred <- fm$YHat
+  
+  rows_with_NA <- rownames(Y)[apply(is.na(Y), 1, any)]
+  
+  subset_dataY <- Y2[rows_with_NA, ]
+  subset_dataPred <- pred[rows_with_NA, ]
+  
+  DON_Y <- subset_dataY[, 1]
+  DON_pred <- subset_dataPred[, 1]
+  
+  correlation <- cor(DON_Y, DON_pred)
+  
+  # Append the correlation value to the dataframe
+  correlation_results <- rbind(correlation_results, data.frame(Iteration = i, Correlation = correlation))
+}
+
+mean(correlation_results$Correlation)
+
+write.csv(correlation_results, "MTM_RandomEffect_1PC_(PC-Range).csv")
